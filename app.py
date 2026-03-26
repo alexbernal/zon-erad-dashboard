@@ -787,7 +787,7 @@ def render_heatmap(matrix: List[Dict]):
         text=text, texttemplate="%{text}", textfont={"size": 12, "color": "white"},
         colorscale=[[0, "#1a0000"], [0.3, "#331100"], [0.5, "#333300"], [0.7, "#003300"], [1, "#00ff41"]],
         showscale=True,
-        colorbar=dict(title="Improvement", titlefont=dict(color="#888"), tickfont=dict(color="#888")),
+        colorbar=dict(title=dict(text="Improvement", font=dict(color="#888")), tickfont=dict(color="#888")),
     ))
     fig.update_layout(
         template="plotly_dark",
