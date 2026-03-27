@@ -14,6 +14,8 @@ import time
 import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
+from streamlit_autorefresh import st_autorefresh
+from wiki_competition import render_wiki_tab, render_competition_tab, render_improvement_box_plots
 
 # ═══════════════════════════════════════════════════════════════
 # Configuration
@@ -361,8 +363,85 @@ CONSTRUCT_CSS = """
         border-color: var(--nexus-primary) !important;
         color: var(--nexus-primary) !important;
     }
+
+    /* ── Live Clock Bar ── */
+    .live-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: linear-gradient(90deg, rgba(0,255,65,0.06) 0%, rgba(0,0,0,0.4) 50%, rgba(0,255,65,0.06) 100%);
+        border: 1px solid var(--nexus-border);
+        border-radius: 6px;
+        padding: 8px 18px;
+        margin-bottom: 16px;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .live-bar .clock {
+        color: var(--nexus-primary);
+        font-size: 1.15em;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-shadow: 0 0 8px var(--nexus-glow);
+    }
+    .live-bar .live-dot {
+        display: inline-block;
+        width: 9px; height: 9px;
+        background: #2ecc71;
+        border-radius: 50%;
+        margin-right: 8px;
+        animation: pulse-dot 1.5s ease-in-out infinite;
+        box-shadow: 0 0 6px #2ecc71;
+    }
+    @keyframes pulse-dot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.7); }
+    }
+    .live-bar .live-label {
+        color: #2ecc71;
+        font-size: 0.8em;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+    }
+    .live-bar .meta {
+        color: var(--color-muted);
+        font-size: 0.75em;
+    }
+    .live-bar .meta .val {
+        color: var(--color-text);
+    }
+    .live-bar .refresh-ring {
+        display: inline-block;
+        width: 14px; height: 14px;
+        border: 2px solid rgba(0,255,65,0.2);
+        border-top-color: var(--nexus-primary);
+        border-radius: 50%;
+        animation: spin-ring 2s linear infinite;
+        margin-right: 6px;
+        vertical-align: middle;
+    }
+    @keyframes spin-ring {
+        to { transform: rotate(360deg); }
+    }
+
+    /* ── Scanning Line (subtle activity animation) ── */
+    .scan-line {
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent 0%, var(--nexus-primary) 50%, transparent 100%);
+        background-size: 200% 100%;
+        animation: scan-sweep 3s ease-in-out infinite;
+        opacity: 0.4;
+        margin-bottom: 4px;
+    }
+    @keyframes scan-sweep {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
 </style>
 """
+
+AUTO_REFRESH_MS = 30_000  # 30 seconds
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -460,6 +539,51 @@ def load_all_data() -> Dict:
         "results": results, "matrix": matrix, "evolution": evolution,
         "fetched_at": datetime.now(timezone.utc),
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Live Header Bar
+# ═══════════════════════════════════════════════════════════════
+
+def render_live_header(data: Dict):
+    """Render the animated live clock + status bar at top of every page."""
+    now = datetime.now()
+    clock_str = now.strftime("%Y-%m-%d  %H:%M:%S")
+    tz_name = time.strftime("%Z")
+
+    status = data.get("status") or {}
+    current = status.get("current_experiment")
+    cycle = status.get("cycle_number", 0)
+    done = status.get("experiments_completed", 0)
+    total = status.get("experiments_total", 0)
+    paused = status.get("paused", False)
+
+    if paused:
+        state_html = '<span style="color:#f1c40f;">⏸ PAUSED</span>'
+    elif current:
+        strategy = STRATEGY_SHORT.get(current.get("strategy", ""), current.get("strategy", "?"))
+        method = METHOD_SHORT.get(current.get("method", ""), current.get("method", "?"))
+        state_html = f'<span style="color:#2ecc71;">▶ {strategy} × {method}</span>'
+    else:
+        state_html = '<span style="color:#bd93f9;">⏳ COOLDOWN</span>'
+
+    st.markdown(f'''<div class="live-bar">
+        <div>
+            <span class="live-dot"></span>
+            <span class="live-label">LIVE</span>
+        </div>
+        <div class="clock">{clock_str}</div>
+        <div class="meta">
+            Cycle <span class="val">{cycle}</span> &nbsp;·&nbsp;
+            {done}/{total} experiments &nbsp;·&nbsp;
+            {state_html}
+        </div>
+        <div class="meta">
+            <span class="refresh-ring"></span>
+            <span class="val">{tz_name}</span> &nbsp; bizon1
+        </div>
+    </div>
+    <div class="scan-line"></div>''', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1017,6 +1141,9 @@ def render_analysis_tab(data: Dict):
         )
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
+    # ── Per-Strategy and Per-Method Improvement Box Plots ──
+    render_improvement_box_plots(completed)
+
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── Experiment Duration Distribution ──
@@ -1254,174 +1381,8 @@ def render_activity_tab(data: Dict):
 
 
 # ═══════════════════════════════════════════════════════════════
-# TAB 6: WIKI
+# TAB 6: WIKI + TAB 7: COMPETITION — imported from wiki_competition.py
 # ═══════════════════════════════════════════════════════════════
-
-def render_wiki_tab():
-    st.markdown('<div class="dashboard-title">ERAD WIKI</div>', unsafe_allow_html=True)
-    st.markdown('<div class="dashboard-subtitle">System Guide \u2022 Strategy Reference \u2022 Method Reference \u2022 Glossary</div>', unsafe_allow_html=True)
-
-    wiki_nav = st.radio("Navigate:", ["\U0001f4d6 ERAD Overview", "\U0001f3af Strategies", "\U0001f527 Methods", "\U0001f4dd Glossary", "\u2699\ufe0f How It Works"], horizontal=True, label_visibility="collapsed")
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    if wiki_nav == "\U0001f4d6 ERAD Overview":
-        st.markdown('''<div class="wiki-section"><h3>What is ERAD?</h3>
-        <p style="color: var(--color-text); line-height: 1.8;">
-            <strong>ERAD</strong> (Evaluate \u2013 Recommend \u2013 Adapt \u2013 Discover) is ZON Radiance's intelligent learning system for server optimization.
-            It continuously runs experiments on live servers, testing different tuning configurations and learning which optimizations work best for each hardware profile.
-        </p><br>
-        <p style="color: var(--nexus-primary); font-style: italic; padding: 10px; background: rgba(0,255,65,0.05); border-radius: 4px;">
-            "ERAD watches how your servers perform, tries small improvements, measures the results scientifically, and remembers what works \u2014 getting smarter over time."
-        </p></div>''', unsafe_allow_html=True)
-
-        st.markdown('''<div class="wiki-section"><h3>The ERAD Cycle</h3>
-        <div class="code-block">
-EVALUATE  \u2192  Classify server state (idle, light, moderate, heavy, burst)
-RECOMMEND \u2192  Propose optimization policy from knowledge base
-ADAPT     \u2192  Run live A/B experiment to validate improvement
-DISCOVER  \u2192  Record results, update knowledge, share across fleet
-        </div>
-        <p style="color: var(--color-text); margin-top: 15px; line-height: 1.8;">
-            Each cycle runs <strong>16 strategy\u00d7method combinations</strong> across all target servers
-            (currently 32 experiments per cycle = 4 strategies \u00d7 4 methods \u00d7 2 servers).
-            Results feed into the knowledge base, making each subsequent cycle smarter.
-        </p></div>''', unsafe_allow_html=True)
-
-        st.markdown('''<div class="wiki-section"><h3>System Architecture</h3>
-        <table class="wiki-table">
-            <tr><th>Component</th><th>Role</th><th>Description</th></tr>
-            <tr><td><span class="glossary-term">Temporal Workflow</span></td><td>Orchestrator</td>
-                <td>Durable workflow engine. Manages experiment lifecycle, survives restarts.</td></tr>
-            <tr><td><span class="glossary-term">Experiment Executor</span></td><td>Runner</td>
-                <td>Temporal activity that collects metrics, applies policies via MCP, measures results.</td></tr>
-            <tr><td><span class="glossary-term">Genetic Optimizer</span></td><td>Config Evolver</td>
-                <td>Evolves configuration parameters using genetic algorithms across generations.</td></tr>
-            <tr><td><span class="glossary-term">SCBO Engine</span></td><td>Safe Optimizer</td>
-                <td>Safe Contextual Bayesian Optimization \u2014 GP-backed acquisition with safety constraints.</td></tr>
-            <tr><td><span class="glossary-term">Knowledge Base</span></td><td>Memory</td>
-                <td>Stores experiment results, tracks best combos, enables cross-server learning.</td></tr>
-            <tr><td><span class="glossary-term">MCP Probe</span></td><td>Eyes & Hands</td>
-                <td>Agent on each server: collects metrics and applies tuning via system calls.</td></tr>
-        </table></div>''', unsafe_allow_html=True)
-
-    elif wiki_nav == "\U0001f3af Strategies":
-        st.markdown('''<div class="wiki-section"><h3>Experiment Strategies</h3>
-        <p style="color: var(--color-text); margin-bottom: 15px;">ERAD uses 4 strategies to explore the optimization space. Each trades off exploration vs. exploitation differently.</p>
-        <table class="wiki-table">
-            <tr><th>Strategy</th><th>Type</th><th>Description</th><th>Best For</th></tr>
-            <tr><td><span class="glossary-term">Shadow Mode</span></td><td>Passive</td>
-                <td>Observe-only. Collects metrics without applying any changes. Pure baseline.</td>
-                <td>Initial data collection, safety verification</td></tr>
-            <tr><td><span class="glossary-term">A/B Tester</span></td><td>Statistical</td>
-                <td>Classic split test. Alternates baseline/treatment iterations, uses t-test + Cohen's d for significance.</td>
-                <td>Rigorous comparison with statistical confidence</td></tr>
-            <tr><td><span class="glossary-term">Thompson Bandit</span></td><td>Bayesian</td>
-                <td>Multi-armed bandit using Thompson Sampling. Maintains Beta distributions per action, samples to select.</td>
-                <td>Fast convergence when many options exist</td></tr>
-            <tr><td><span class="glossary-term">Bayesian Opt</span></td><td>Model-Based</td>
-                <td>Gaussian Process regression over the configuration space. Uses Expected Improvement (EI) acquisition function.</td>
-                <td>Efficient optimization of continuous parameter spaces</td></tr>
-        </table></div>''', unsafe_allow_html=True)
-
-        # SCBO extension
-        st.markdown('''<div class="wiki-section"><h3>SCBO \u2014 Safe Contextual Bayesian Optimization</h3>
-        <p style="color: var(--color-text); line-height: 1.8;">
-            Built on top of Bayesian Opt, the SCBO engine adds:
-        </p>
-        <ul style="color: var(--color-text); line-height: 2;">
-            <li><strong>Context Vectors</strong> \u2014 5-dimensional: CPU pressure, memory pressure, IO pressure, time-of-day, workload volatility</li>
-            <li><strong>Epistemic Tracking</strong> \u2014 Knows what it doesn't know; adds exploration bonus to under-sampled regions</li>
-            <li><strong>Proactive Safety</strong> \u2014 GP-backed prediction of guardrail violations BEFORE applying actions</li>
-            <li><strong>Adaptive Loop</strong> \u2014 Auto-tunes exploration/exploitation ratio and acquisition strategy based on convergence</li>
-            <li><strong>Multi-Objective Scalarization</strong> \u2014 Weighted sum, Tchebycheff, or achievement scalarization for competing objectives</li>
-            <li><strong>Transfer Learning</strong> \u2014 Reuses GP knowledge across similar hardware profiles</li>
-        </ul></div>''', unsafe_allow_html=True)
-
-    elif wiki_nav == "\U0001f527 Methods":
-        st.markdown('''<div class="wiki-section"><h3>Optimization Methods</h3>
-        <p style="color: var(--color-text); margin-bottom: 15px;">
-            Each method targets a specific subsystem of the server. They apply real system-level changes via MCP probe tools.
-        </p></div>''', unsafe_allow_html=True)
-
-        for meth, desc in METHOD_DESC.items():
-            label = METHOD_LABELS[meth]
-            metrics = METHOD_METRICS.get(meth, {})
-            metrics_rows = "".join(f'<tr><td><code>{k}</code></td><td>{w:.0%}</td><td>{d}imize</td></tr>' for k, (w, d) in metrics.items())
-
-            st.markdown(f'''<div class="wiki-section"><h3>{label}</h3>
-            <p style="color: var(--color-text); margin-bottom: 10px;">{desc}</p>
-            <table class="wiki-table">
-                <tr><th>Metric</th><th>Weight</th><th>Direction</th></tr>
-                {metrics_rows}
-            </table></div>''', unsafe_allow_html=True)
-
-    elif wiki_nav == "\U0001f4dd Glossary":
-        st.markdown('''<div class="wiki-section"><h3>Key Terms</h3>
-        <table class="wiki-table">
-            <tr><th>Term</th><th>Definition</th></tr>
-            <tr><td><span class="glossary-term">ERAD</span></td><td>Evaluate-Recommend-Adapt-Discover. The 4-phase optimization learning loop.</td></tr>
-            <tr><td><span class="glossary-term">Cycle</span></td><td>One complete pass through all 16 strategy\u00d7method combinations across all servers.</td></tr>
-            <tr><td><span class="glossary-term">Experiment</span></td><td>A single run of one strategy + one method on one server. Multiple iterations inside.</td></tr>
-            <tr><td><span class="glossary-term">Iteration</span></td><td>One baseline-treatment-measure loop within an experiment.</td></tr>
-            <tr><td><span class="glossary-term">Fitness Score</span></td><td>Composite improvement metric. Weighted sum of per-method metrics.</td></tr>
-            <tr><td><span class="glossary-term">Reward Signal</span></td><td>Per-method metric set used to evaluate if a policy change helped or hurt.</td></tr>
-            <tr><td><span class="glossary-term">Policy</span></td><td>A set of system-level configuration changes (e.g., scheduler, swappiness, power limit).</td></tr>
-            <tr><td><span class="glossary-term">MCP</span></td><td>Model Context Protocol. Standardized tool interface for probes to collect metrics and apply changes.</td></tr>
-            <tr><td><span class="glossary-term">GP</span></td><td>Gaussian Process. Probabilistic model used by Bayesian Opt and SCBO.</td></tr>
-            <tr><td><span class="glossary-term">EI</span></td><td>Expected Improvement. Acquisition function that balances exploration and exploitation.</td></tr>
-            <tr><td><span class="glossary-term">Guardrail</span></td><td>Safety threshold. If a metric exceeds its guardrail, the action is rolled back.</td></tr>
-            <tr><td><span class="glossary-term">Context Vector</span></td><td>5-dim feature: CPU/mem/IO pressure, time-of-day, volatility. Conditions GP predictions.</td></tr>
-            <tr><td><span class="glossary-term">Cohen's d</span></td><td>Effect size measure. Used by A/B Tester to quantify how large the improvement is.</td></tr>
-            <tr><td><span class="glossary-term">Thompson Sampling</span></td><td>Bayesian exploration strategy. Samples from posterior to select actions.</td></tr>
-            <tr><td><span class="glossary-term">Temporal</span></td><td>Durable workflow engine. Ensures experiments survive crashes and restarts.</td></tr>
-        </table></div>''', unsafe_allow_html=True)
-
-    elif wiki_nav == "\u2699\ufe0f How It Works":
-        st.markdown('''<div class="wiki-section"><h3>Experiment Lifecycle</h3>
-        <div class="code-block">
-1. ERAD workflow starts a new experiment:
-   \u2192 Strategy = bayesian_opt, Method = io_scheduler, Server = metal-erad-001
-
-2. Experiment Executor (Temporal Activity) runs:
-   a. Connect to server via MCP probe
-   b. Collect BASELINE metrics (method-specific):
-      - iops_total, avg_read_latency_ms, throughput_read_mbps, power_watts
-   c. Strategy selects ACTION (e.g., set scheduler=kyber, queue_depth=256)
-   d. Apply action via MCP probe tools
-   e. Wait stabilization period (30s)
-   f. Collect TREATMENT metrics
-   g. Compute composite reward using method weights
-   h. Strategy observes result, updates its model
-   i. Repeat for N iterations (typically 8-14)
-
-3. After all iterations:
-   a. Analyze: t-test for significance, compute improvement %
-   b. Pick winner (baseline or best treatment)
-   c. If treatment won: deploy as permanent policy
-   d. Record everything to knowledge base
-
-4. Move to next strategy\u00d7method\u00d7server combo
-        </div></div>''', unsafe_allow_html=True)
-
-        st.markdown('''<div class="wiki-section"><h3>Reading the Dashboard</h3>
-        <table class="wiki-table">
-            <tr><th>Panel</th><th>What It Shows</th><th>What to Look For</th></tr>
-            <tr><td>Overview</td><td>Live experiment, cycle progress, system health</td><td>Engine state, current experiment running</td></tr>
-            <tr><td>Experiments</td><td>Full history with policies deployed</td><td>Which combos produce positive improvements</td></tr>
-            <tr><td>Analysis</td><td>Trend charts, convergence, comparisons</td><td>Is the system converging? Which methods work best?</td></tr>
-            <tr><td>Servers</td><td>Per-server view</td><td>Does a specific server respond better to certain methods?</td></tr>
-            <tr><td>Activity Log</td><td>Temporal events, raw data</td><td>Timeline of all actions taken</td></tr>
-        </table></div>''', unsafe_allow_html=True)
-
-        st.markdown('''<div class="wiki-section"><h3>Safety Guarantees</h3>
-        <ul style="color: var(--color-text); line-height: 2;">
-            <li>\u2705 <strong>Guardrails</strong> \u2014 Each method has max/min thresholds. Violations trigger automatic rollback.</li>
-            <li>\u2705 <strong>Proactive Safety</strong> \u2014 GP predicts if an action WILL violate a guardrail before applying it.</li>
-            <li>\u2705 <strong>Shadow Mode</strong> \u2014 First strategy in each cycle is observe-only. No changes applied.</li>
-            <li>\u2705 <strong>Temporal Durability</strong> \u2014 If the worker crashes mid-experiment, it resumes from the last checkpoint.</li>
-            <li>\u2705 <strong>Rate Limiting</strong> \u2014 Max 10 concurrent workflows, max 5 child workflows, 10 req/min.</li>
-            <li>\u2705 <strong>Rollback on Failure</strong> \u2014 Any failed experiment reverts all system changes.</li>
-        </ul></div>''', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1437,6 +1398,9 @@ def main():
     )
     st.markdown(CONSTRUCT_CSS, unsafe_allow_html=True)
 
+    # Browser-side auto-refresh (non-blocking, replaces time.sleep/st.rerun)
+    st_autorefresh(interval=AUTO_REFRESH_MS, limit=0, key="erad_refresh")
+
     # Sidebar
     with st.sidebar:
         st.markdown('<div class="sidebar-title">\U0001f9ea ERAD ENGINE</div>', unsafe_allow_html=True)
@@ -1446,23 +1410,26 @@ def main():
             "\U0001f4c8 Analysis",
             "\U0001f5a5\ufe0f Servers",
             "\U0001f4cb Activity Log",
+            "\U0001f3c6 Competition",
             "\U0001f4da Wiki",
         ], label_visibility="collapsed")
 
         st.markdown("---")
 
-        # Connection info
         fetched = datetime.now().strftime("%H:%M:%S")
         st.markdown(f'''<div style="color: var(--color-muted); font-size: 0.8em; padding: 10px;">
-            <strong>Refresh:</strong> {REFRESH_INTERVAL}s<br>
+            <strong>Auto-Refresh:</strong> {AUTO_REFRESH_MS // 1000}s<br>
             <strong>Source:</strong> bizon1 Supabase + Temporal<br>
             <strong>Temporal:</strong> {TEMPORAL_ADDRESS}<br>
             <strong>Theme:</strong> Construct<br>
-            <strong>Updated:</strong> {fetched}
+            <strong>Last Fetch:</strong> {fetched}
         </div>''', unsafe_allow_html=True)
 
     # Load data
     data = load_all_data()
+
+    # Live clock header on every page
+    render_live_header(data)
 
     # Route to tab
     if tab == "\U0001f3e0 Overview":
@@ -1475,13 +1442,10 @@ def main():
         render_servers_tab(data)
     elif tab == "\U0001f4cb Activity Log":
         render_activity_tab(data)
+    elif tab == "\U0001f3c6 Competition":
+        render_competition_tab(data)
     elif tab == "\U0001f4da Wiki":
         render_wiki_tab()
-
-    # Auto-refresh (skip for wiki)
-    if tab != "\U0001f4da Wiki":
-        time.sleep(REFRESH_INTERVAL)
-        st.rerun()
 
 
 if __name__ == "__main__":
