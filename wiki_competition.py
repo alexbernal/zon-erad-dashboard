@@ -862,38 +862,55 @@ def _wiki_policy_tester():
     The <strong>Policy Tester</strong> is like a factory quality inspector.
     Before you trust any experiment result, you need to know that the lever you're pulling
     is actually connected to the machine.
+    In <strong>v2</strong>, the tester goes further &mdash; it deploys a <strong>matching workload</strong>
+    for each method group so that policies are tested under realistic load, not on idle servers.
+    This means "no effect" actually means no effect, not "we forgot to turn the machine on."
 </p>
 <p style="color: var(--nexus-primary); font-style: italic; padding: 12px; background: rgba(0,255,65,0.05); border-radius: 4px; margin-top: 15px;">
     "Imagine a scientist who discovers that flipping a light switch doesn't actually turn on the light.
     All their experiments measuring 'the effect of light' are meaningless.
-    The Policy Tester catches this BEFORE you waste time experimenting."
+    Now imagine the scientist also makes sure the room is occupied before testing &mdash;
+    because a light switch in an empty room looks like it does nothing.
+    v2 of the Policy Tester does both: checks the wiring AND fills the room."
 </p></div>''', unsafe_allow_html=True)
 
-    # How it works - the 12-step process
-    st.markdown('''<div class="wiki-section"><h3>The 12-Step Test &mdash; How Each Policy Gets Verified</h3>
+    # How it works - workload-aware v2 flow
+    st.markdown('''<div class="wiki-section"><h3>The Workload-Aware Test Cycle &mdash; How v2 Verifies Policies</h3>
 <p style="color: var(--color-text); line-height: 1.8;">
-    For <strong>every single policy</strong> in the ERAD library, the tester runs this exact sequence:
+    v2 groups policies by <strong>method</strong> (io_scheduler, memory_manager, power_state, forecaster)
+    and deploys a <strong>matching workload simulation</strong> before testing each group.
+    This ensures metrics are measured under realistic load, not idle servers.
 </p>
 <div class="code-block" style="font-size: 0.9em; line-height: 1.8;">
-  STEP  1:  Pick the next policy (e.g. "set I/O scheduler to kyber")
-  STEP  2:  Pick a server (e.g. bizon1-probe-001)
-  STEP  3:  NULL DEPLOY &mdash; send a blank command to make sure the connection works
-  STEP  4:  Wait. Let the server settle.
+  FOR EACH METHOD GROUP (io_scheduler, memory_manager, power_state, forecaster):
 
-  STEP  5:  BASELINE &mdash; Measure everything for 60 seconds ("how is it NOW?")
+  STEP  1:  Deploy a workload that exercises this method type
+  STEP  2:  PRIMING &mdash; 60 seconds of workload only (no policy)
+            This establishes a clean baseline under load.
 
-  STEP  6:  DEPLOY &mdash; Apply the policy to the server
-  STEP  7:  Wait. Let the change take effect.
-  STEP  8:  TREATMENT &mdash; Measure everything for 60 seconds ("how is it AFTER?")
+    FOR EACH POLICY in this method group:
 
-  STEP  9:  REVERT &mdash; Undo the change. Put everything back.
-  STEP 10:  Compare baseline vs. treatment. Calculate % change for each metric.
-  STEP 11:  Classify: EFFECT DETECTED / NO EFFECT / DEPLOY FAILED
-  STEP 12:  Write an Intelligence Brief explaining what happened.
+      STEP  3:  BASELINE &mdash; Measure everything for 60 seconds ("how is it NOW under load?")
+      STEP  4:  DEPLOY &mdash; Apply the policy to the server
+      STEP  5:  TREATMENT &mdash; Measure everything for 60 seconds ("how is it AFTER?")
+      STEP  6:  REVERT &mdash; Undo the change. Put everything back.
+      STEP  7:  COOLDOWN &mdash; 60 seconds between policies (let the server settle)
+      STEP  8:  Classify: EFFECT / NO EFFECT / DEPLOY FAILED
+      STEP  9:  Write an Intelligence Brief explaining what happened.
+
+  STEP 10:  Stop the workload for this method group
+  STEP 11:  BUFFER &mdash; 120 seconds before the next workload group starts
 </div>
 <p style="color: var(--color-text); line-height: 1.8; margin-top: 12px;">
-    This runs for <strong>every</strong> policy &times; <strong>every</strong> server.
-    With 74 unique policies and 2 servers, that's <strong>148 tests per cycle</strong>.
+    This runs for <strong>every</strong> policy &times; <strong>every</strong> server, grouped by method.
+    With 74 unique policies and 2 servers, that's <strong>148 tests per cycle</strong>,
+    organized into <strong>4 workload groups</strong>.
+</p>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 8px;">
+    <strong>Why the priming and cooldowns?</strong> Without them, the first policy in a group
+    gets tested on a cold server and the last one on a warm server &mdash; apples to oranges.
+    The 60-second priming ensures every policy starts from the same loaded baseline,
+    and the 60-second cooldown prevents one policy's residual effects from bleeding into the next.
 </p></div>''', unsafe_allow_html=True)
 
     # Why it matters
@@ -925,29 +942,41 @@ def _wiki_policy_tester():
     # The dashboard
     st.markdown('''<div class="wiki-section"><h3>Reading the Policy Tester Dashboard</h3>
 <p style="color: var(--color-text); line-height: 1.8;">
-    The Policy Tester tab has 5 sections. Here's what each one tells you:
+    The Policy Tester tab has 8 sections. Here's what each one tells you:
 </p>
 <table class="wiki-table" style="margin: 15px 0;">
     <tr><th>Section</th><th>What You See</th><th>What It Means</th></tr>
-    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Cycle Status</td>
-        <td>Progress bar, test count, server count</td>
-        <td>How far along the current test cycle is. 100% = all policies verified.</td></tr>
-    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Summary Metrics</td>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Global Progress Bar</td>
+        <td>Animated pulsing bar at the very top: tests completed/total, current workload group &amp; number (e.g. "Group 2/4 &mdash; memory_manager"), target servers, % bar, elapsed time</td>
+        <td>Live status of the running cycle. Shows which method group is active and how far along you are.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Summary Metrics (Row 1)</td>
         <td>4 big numbers: Tests Run, Effect Detected, No Effect, Deploy Failed</td>
         <td>The scoreboard. "Deploy Failed" is the most important &mdash; those policies are broken.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Summary Metrics (Row 2)</td>
+        <td>Workload Groups, Total Wall Time, Avg Test Duration, Measurement Window</td>
+        <td>Operational stats. How long the cycle took, how many groups were tested, and the measurement window per test.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Summary Metrics (Row 3)</td>
+        <td>Method Breakdown &mdash; color-coded bars per method (Forecaster, I/O Scheduler, Memory Manager, Power State)</td>
+        <td>At a glance: how many tests per method, color-coded by type. Spot imbalances instantly.</td></tr>
     <tr><td style="color: var(--nexus-primary); font-weight: 600;">Effect Heatmap</td>
-        <td>Grid of colored cells: policies (rows) &times; servers (columns)</td>
-        <td>Green = policy had a measurable effect. Grey = no effect. Red = negative effect. Quick visual scan.</td></tr>
+        <td>Table with columns: Policy | Server | Primary &Delta;% | Total &Delta;% | Direction | Deploy. Values in <code>+07.08%</code> zero-padded format.</td>
+        <td>Green = positive effect, red = negative, gray = neutral. Deploy column shows &#x2705;/&#x274C;. Quick visual scan of every policy.</td></tr>
     <tr><td style="color: var(--nexus-primary); font-weight: 600;">Test Results</td>
-        <td>Expandable cards for each test with metrics table</td>
-        <td>Click any test to see baseline vs. treatment numbers, percent change, and the AI-generated intelligence brief.</td></tr>
-    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Cycle History</td>
-        <td>Table of past cycles</td>
-        <td>Compare across runs. Are we fixing deploy failures over time?</td></tr>
+        <td>Expandable cards showing Before/During/After metrics, delta arrows (&#x25B2; green / &#x25BC; red / &mdash; gray), and a Plotly grouped bar chart of % change from baseline</td>
+        <td>Click any test to see the 3-phase comparison: BEFORE (baseline), DURING (policy active), AFTER (reverted). The chart shows % change per metric.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Diagnostic Summary</td>
+        <td>Ranked action items by severity: &#x1F534; CRITICAL, &#x1F7E0; HIGH, &#x1F7E1; MEDIUM, &#x1F7E2; LOW. Each with action verb, count, method, and recommendation.</td>
+        <td>After a cycle completes, this tells you exactly what to fix and in what order. Start at the top (CRITICAL) and work down.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Policy Health Table</td>
+        <td>Full table: Policy Name | Method | Server | Deploy | Effect | Direction | Primary &Delta;% | Verdict. Sorted by severity with method subtotals.</td>
+        <td>The definitive status of every policy. Verdicts: &#x26A0;&#xFE0F; BROKEN, &#x1F534; HARMFUL, &#x1F4A4; DEAD WEIGHT, &#x1F7E1; MARGINAL, &#x2705; EFFECTIVE.</td></tr>
 </table></div>''', unsafe_allow_html=True)
 
     # Interpreting results
-    st.markdown('''<div class="wiki-section"><h3>Interpreting the Results &mdash; What Do the Tags Mean?</h3>
+    st.markdown('''<div class="wiki-section"><h3>Interpreting the Results &mdash; Tags and Verdicts</h3>
+<p style="color: var(--color-text); line-height: 1.8;">
+    <strong>Test-level tags</strong> (assigned during the cycle):
+</p>
 <table class="wiki-table" style="margin: 15px 0;">
     <tr><th>Tag</th><th>Color</th><th>What Happened</th><th>What To Do</th></tr>
     <tr><td><strong>EFFECT</strong></td>
@@ -957,7 +986,7 @@ def _wiki_policy_tester():
     <tr><td><strong>NO EFFECT</strong></td>
         <td style="color: #888;">Grey</td>
         <td>Policy deployed successfully but metrics didn't change</td>
-        <td>Could mean: server is idle (no load to affect), or the metric window is too short, or the policy genuinely doesn't change this metric. Re-test under load.</td></tr>
+        <td>In v2 this is tested under load, so "no effect" genuinely means the policy doesn't move the needle for this method's workload.</td></tr>
     <tr><td><strong>DEPLOY FAILED</strong></td>
         <td style="color: #ff5555;">Red</td>
         <td>The policy could not be applied to the server</td>
@@ -966,6 +995,32 @@ def _wiki_policy_tester():
         <td style="color: #f1c40f;">Yellow</td>
         <td>Test hasn't run yet</td>
         <td>Wait for the cycle to reach this test.</td></tr>
+</table>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 15px;">
+    <strong>Policy Health verdicts</strong> (assigned after the cycle in the Diagnostic Summary):
+</p>
+<table class="wiki-table" style="margin: 15px 0;">
+    <tr><th>Verdict</th><th>Icon</th><th>Meaning</th><th>Action</th></tr>
+    <tr><td><strong>BROKEN</strong></td>
+        <td>&#x26A0;&#xFE0F;</td>
+        <td>Policy cannot deploy at all</td>
+        <td>Check the MCP probe tool. This policy is unusable until fixed.</td></tr>
+    <tr><td><strong>HARMFUL</strong></td>
+        <td style="color: #ff5555;">&#x1F534;</td>
+        <td>Policy deploys but <em>degrades</em> performance</td>
+        <td>Remove from the experiment library or investigate why it makes things worse.</td></tr>
+    <tr><td><strong>DEAD WEIGHT</strong></td>
+        <td>&#x1F4A4;</td>
+        <td>Policy deploys but has zero measurable impact</td>
+        <td>Candidate for removal from the library. It's taking up experiment slots for nothing.</td></tr>
+    <tr><td><strong>MARGINAL</strong></td>
+        <td style="color: #f1c40f;">&#x1F7E1;</td>
+        <td>Effect detected but less than 1%</td>
+        <td>Keep for now, but deprioritize. The effect is real but tiny.</td></tr>
+    <tr><td><strong>EFFECTIVE</strong></td>
+        <td style="color: #2ecc71;">&#x2705;</td>
+        <td>Meaningful positive effect detected</td>
+        <td>This policy works. Prioritize it in experiments.</td></tr>
 </table></div>''', unsafe_allow_html=True)
 
     # Safety guarantees
@@ -987,23 +1042,38 @@ def _wiki_policy_tester():
 </p></div>''', unsafe_allow_html=True)
 
     # The flow diagram
-    st.markdown('''<div class="wiki-section"><h3>Policy Tester Flow</h3>
+    st.markdown('''<div class="wiki-section"><h3>Policy Tester Flow (v2 &mdash; Workload-Aware)</h3>
 <div class="code-block" style="font-size: 0.85em; line-height: 1.6;">
   ERAD Policy Library (74 unique actions)
                   |
-    For each policy x each server:
+    Group policies by method:
+    [io_scheduler] [memory_manager] [power_state] [forecaster]
                   |
-           NULL DEPLOY         test the connection
+    FOR EACH METHOD GROUP:
                   |
-           BASELINE (60s)      measure before
+      DEPLOY WORKLOAD           start a load that exercises this method
                   |
-           DEPLOY POLICY       apply the change
+      PRIMING (60s)             workload only, no policy &mdash; clean baseline
                   |
-           TREATMENT (60s)     measure after
+        FOR EACH POLICY in this group:
                   |
-           REVERT              put everything back
+          BASELINE (60s)        measure under load, before policy
                   |
-           CLASSIFY + BRIEF    verdict and explanation
+          DEPLOY POLICY         apply the change
+                  |
+          TREATMENT (60s)       measure under load, with policy
+                  |
+          REVERT                put everything back
+                  |
+          COOLDOWN (60s)        let the server settle
+                  |
+          CLASSIFY + BRIEF      verdict and explanation
+                  |
+      STOP WORKLOAD             remove the load
+                  |
+      BUFFER (120s)             rest before next group
+                  |
+    DIAGNOSTIC SUMMARY          ranked action items + health table
 </div></div>''', unsafe_allow_html=True)
 
     # Real example from cycle 3
@@ -1031,7 +1101,45 @@ def _wiki_policy_tester():
     This is exactly the kind of insight the Policy Tester is designed to provide.
     Without it, the power_state experiments would have run hundreds of iterations
     with broken tools &mdash; wasting time and producing meaningless data.
+</p>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 8px;">
+    <strong>Note:</strong> Cycle 3 ran on v1 (idle servers). With v2's workload-aware testing,
+    the "Effects Found: 0" problem is solved &mdash; policies are now tested under realistic load,
+    so genuine effects are visible.
 </p></div>''', unsafe_allow_html=True)
+
+    # New in v2
+    st.markdown('''<div class="wiki-section"><h3>New in v2 &mdash; What Changed</h3>
+<p style="color: var(--color-text); line-height: 1.8;">
+    The Policy Tester was rewritten from 644 to 1,719 lines. Here's what's new:
+</p>
+<table class="wiki-table" style="margin: 15px 0;">
+    <tr><th>#</th><th>Feature</th><th>What It Does</th></tr>
+    <tr><td>1</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Workload-Aware Testing</td>
+        <td>Policies are grouped by method. A matching workload runs during testing so metrics reflect real load, not idle servers. 60s priming, 60s cooldowns, 120s buffer between groups.</td></tr>
+    <tr><td>2</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Global Progress Bar</td>
+        <td>Animated pulsing bar at the top showing tests completed/total, current workload group, target servers, % progress, and elapsed time.</td></tr>
+    <tr><td>3</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Expanded Summary (3 rows)</td>
+        <td>Row 1: same 4 metrics. Row 2: Workload Groups, Wall Time, Avg Duration, Window. Row 3: Method Breakdown with color-coded bars.</td></tr>
+    <tr><td>4</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Before / During / After Metrics</td>
+        <td>Each test expander shows 3-phase comparison with color-coded delta arrows (&#x25B2; green, &#x25BC; red, &mdash; gray) and a Plotly grouped bar chart.</td></tr>
+    <tr><td>5</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Improved Effect Heatmap</td>
+        <td>Values in zero-padded <code>+07.08%</code> format. Columns: Policy | Server | Primary &Delta;% | Total &Delta;% | Direction | Deploy (&#x2705;/&#x274C;).</td></tr>
+    <tr><td>6</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Diagnostic Summary</td>
+        <td>Ranked action items by severity: &#x1F534; CRITICAL (deploy failures), &#x1F7E0; HIGH (degraded), &#x1F7E1; MEDIUM (zero effect), &#x1F7E2; LOW (marginal). Each with action verb, count, and recommendation.</td></tr>
+    <tr><td>7</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Policy Health Table</td>
+        <td>Full diagnostic table with verdicts: &#x26A0;&#xFE0F; BROKEN, &#x1F534; HARMFUL, &#x1F4A4; DEAD WEIGHT, &#x1F7E1; MARGINAL, &#x2705; EFFECTIVE. Sorted by severity with method subtotals.</td></tr>
+    <tr><td>8</td>
+        <td style="color: var(--nexus-primary); font-weight: 600;">Updated Flow</td>
+        <td>Method-grouped execution with priming, cooldowns, and buffer periods. See the flow diagram above.</td></tr>
+</table></div>''', unsafe_allow_html=True)
 
 
 def _wiki_glossary():
@@ -1115,7 +1223,7 @@ def _wiki_glossary():
         <td><strong>Non-Uniform Memory Access.</strong> Some RAM is closer to a CPU than other RAM. Accessing close memory is faster. The Memory Manager optimizes which data goes where.</td></tr>
 
     <tr><td><span class="glossary-term">Policy Tester</span></td>
-        <td>A verification tool that deploys every single policy one at a time, measures before/after metrics, then reverts. Catches broken deploys and silent failures <em>before</em> experiments run. Like a pre-flight checklist for an airplane.</td></tr>
+        <td>A verification tool that tests every policy under realistic workload conditions. v2 groups policies by method, deploys a matching workload, measures before/during/after metrics, then reverts. Produces a diagnostic summary with verdicts (BROKEN, HARMFUL, DEAD WEIGHT, MARGINAL, EFFECTIVE). Catches broken deploys, harmful policies, and dead weight <em>before</em> experiments run. Like a pre-flight checklist that also simulates turbulence.</td></tr>
 
     <tr><td><span class="glossary-term">Intelligence Brief</span></td>
         <td>An AI-generated summary explaining what happened during a policy test or experiment. Written in plain English so anyone can understand the result.</td></tr>
