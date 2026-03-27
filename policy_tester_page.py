@@ -1302,7 +1302,8 @@ def _render_heatmap_chart(results: List[Dict], servers: List[str]) -> None:
         yaxis=dict(tickfont=dict(color="#8be9fd", size=10), autorange="reversed"),
         font=dict(family="JetBrains Mono, monospace"),
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False},
+                    key="heatmap-chart")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1483,11 +1484,11 @@ def _render_phase_metrics(test: Dict) -> None:
             )
 
     # Small Plotly bar chart for visual comparison
-    _render_phase_chart(all_keys, baseline, treatment)
+    _render_phase_chart(all_keys, baseline, treatment, chart_key=test.get("id", ""))
 
 
 def _render_phase_chart(keys: List[str], baseline: Dict[str, float],
-                        treatment: Dict[str, float]) -> None:
+                        treatment: Dict[str, float], chart_key: str = "") -> None:
     """Small grouped bar chart: Before vs During for each metric."""
     # Only show chart if we have enough data points
     valid_keys = [k for k in keys if k in baseline and k in treatment]
@@ -1554,7 +1555,8 @@ def _render_phase_chart(keys: List[str], baseline: Dict[str, float],
         xaxis=dict(tickfont=dict(size=8, color="#8be9fd")),
         font=dict(family="JetBrains Mono, monospace"),
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False},
+                    key=f"phase-chart-{chart_key}" if chart_key else None)
 
 
 # ═══════════════════════════════════════════════════════════════
