@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from streamlit_autorefresh import st_autorefresh
 from wiki_competition import render_wiki_tab, render_competition_tab, render_improvement_box_plots
+from policy_tester_page import render_policy_tester_tab
 
 # ═══════════════════════════════════════════════════════════════
 # Configuration
@@ -1411,6 +1412,7 @@ def main():
             "\U0001f5a5\ufe0f Servers",
             "\U0001f4cb Activity Log",
             "\U0001f3c6 Competition",
+            "\U0001f52c Policy Tester",
             "\U0001f4da Wiki",
         ], label_visibility="collapsed")
 
@@ -1444,6 +1446,8 @@ def main():
         render_activity_tab(data)
     elif tab == "\U0001f3c6 Competition":
         render_competition_tab(data)
+    elif tab == "\U0001f52c Policy Tester":
+        render_policy_tester_tab(data)
     elif tab == "\U0001f4da Wiki":
         render_wiki_tab()
 
