@@ -117,6 +117,7 @@ def render_wiki_tab():
             "\U0001f3af Strategies (How We Test)",
             "\U0001f527 Methods (What We Tune)",
             "\U0001f9e0 SCBO (The Brain)",
+            "\U0001f52c Policy Tester",
             "\u2699\ufe0f How It All Works",
             "\U0001f4dd Glossary",
         ],
@@ -134,6 +135,8 @@ def render_wiki_tab():
         _wiki_methods()
     elif wiki_nav == "\U0001f9e0 SCBO (The Brain)":
         _wiki_scbo()
+    elif wiki_nav == "\U0001f52c Policy Tester":
+        _wiki_policy_tester()
     elif wiki_nav == "\u2699\ufe0f How It All Works":
         _wiki_how_it_works()
     elif wiki_nav == "\U0001f4dd Glossary":
@@ -847,6 +850,190 @@ def _wiki_how_it_works():
 </div></div>''', unsafe_allow_html=True)
 
 
+def _wiki_policy_tester():
+    # Overview
+    st.markdown('''<div class="wiki-section"><h3>What is the Policy Tester?</h3>
+<p style="color: var(--color-text); line-height: 1.8; font-size: 1em;">
+    ERAD is smart &mdash; it picks which settings to try, measures the results, and learns.
+    But there's a question it can't answer on its own:
+    <strong>"Does each policy actually DO anything to the server?"</strong>
+</p>
+<p style="color: var(--color-text); line-height: 1.8; font-size: 1em; margin-top: 10px;">
+    The <strong>Policy Tester</strong> is like a factory quality inspector.
+    Before you trust any experiment result, you need to know that the lever you're pulling
+    is actually connected to the machine.
+</p>
+<p style="color: var(--nexus-primary); font-style: italic; padding: 12px; background: rgba(0,255,65,0.05); border-radius: 4px; margin-top: 15px;">
+    "Imagine a scientist who discovers that flipping a light switch doesn't actually turn on the light.
+    All their experiments measuring 'the effect of light' are meaningless.
+    The Policy Tester catches this BEFORE you waste time experimenting."
+</p></div>''', unsafe_allow_html=True)
+
+    # How it works - the 12-step process
+    st.markdown('''<div class="wiki-section"><h3>The 12-Step Test &mdash; How Each Policy Gets Verified</h3>
+<p style="color: var(--color-text); line-height: 1.8;">
+    For <strong>every single policy</strong> in the ERAD library, the tester runs this exact sequence:
+</p>
+<div class="code-block" style="font-size: 0.9em; line-height: 1.8;">
+  STEP  1:  Pick the next policy (e.g. "set I/O scheduler to kyber")
+  STEP  2:  Pick a server (e.g. bizon1-probe-001)
+  STEP  3:  NULL DEPLOY &mdash; send a blank command to make sure the connection works
+  STEP  4:  Wait. Let the server settle.
+
+  STEP  5:  BASELINE &mdash; Measure everything for 60 seconds ("how is it NOW?")
+
+  STEP  6:  DEPLOY &mdash; Apply the policy to the server
+  STEP  7:  Wait. Let the change take effect.
+  STEP  8:  TREATMENT &mdash; Measure everything for 60 seconds ("how is it AFTER?")
+
+  STEP  9:  REVERT &mdash; Undo the change. Put everything back.
+  STEP 10:  Compare baseline vs. treatment. Calculate % change for each metric.
+  STEP 11:  Classify: EFFECT DETECTED / NO EFFECT / DEPLOY FAILED
+  STEP 12:  Write an Intelligence Brief explaining what happened.
+</div>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 12px;">
+    This runs for <strong>every</strong> policy &times; <strong>every</strong> server.
+    With 74 unique policies and 2 servers, that's <strong>148 tests per cycle</strong>.
+</p></div>''', unsafe_allow_html=True)
+
+    # Why it matters
+    st.markdown('''<div class="wiki-section"><h3>Why This Matters &mdash; The Light Switch Problem</h3>
+<p style="color: var(--color-text); line-height: 1.8;">
+    Imagine you have 74 light switches on a wall, but some of them aren't connected to anything.
+    If you run experiments with a disconnected switch, you'll conclude "this setting has no effect"
+    &mdash; but the truth is <strong>you never actually changed anything</strong>.
+</p>
+<div class="code-block" style="font-size: 0.9em; line-height: 1.8; margin-top: 10px;">
+  WITHOUT POLICY TESTER:              WITH POLICY TESTER:
+
+  Run 500 experiments                  First: test all 74 policies
+  20 policies silently fail            Find 36 that fail to deploy
+  to deploy (no error!)                Flag them BEFORE experiments
+
+  "No effect found" for 20%            Fix the 36, then experiment
+  of experiments                       with confidence
+
+  Wrong conclusion:                    Right conclusion:
+  "These policies don't work"          "These policies work, here's proof"
+</div>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 12px;">
+    In our first real test cycle, we found that <strong>36 out of 148 tests</strong> had deploy failures &mdash;
+    all from the <code>power_state</code> method. Without the Policy Tester, those would have been
+    silent failures inside experiments, giving us bad data.
+</p></div>''', unsafe_allow_html=True)
+
+    # The dashboard
+    st.markdown('''<div class="wiki-section"><h3>Reading the Policy Tester Dashboard</h3>
+<p style="color: var(--color-text); line-height: 1.8;">
+    The Policy Tester tab has 5 sections. Here's what each one tells you:
+</p>
+<table class="wiki-table" style="margin: 15px 0;">
+    <tr><th>Section</th><th>What You See</th><th>What It Means</th></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Cycle Status</td>
+        <td>Progress bar, test count, server count</td>
+        <td>How far along the current test cycle is. 100% = all policies verified.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Summary Metrics</td>
+        <td>4 big numbers: Tests Run, Effect Detected, No Effect, Deploy Failed</td>
+        <td>The scoreboard. "Deploy Failed" is the most important &mdash; those policies are broken.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Effect Heatmap</td>
+        <td>Grid of colored cells: policies (rows) &times; servers (columns)</td>
+        <td>Green = policy had a measurable effect. Grey = no effect. Red = negative effect. Quick visual scan.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Test Results</td>
+        <td>Expandable cards for each test with metrics table</td>
+        <td>Click any test to see baseline vs. treatment numbers, percent change, and the AI-generated intelligence brief.</td></tr>
+    <tr><td style="color: var(--nexus-primary); font-weight: 600;">Cycle History</td>
+        <td>Table of past cycles</td>
+        <td>Compare across runs. Are we fixing deploy failures over time?</td></tr>
+</table></div>''', unsafe_allow_html=True)
+
+    # Interpreting results
+    st.markdown('''<div class="wiki-section"><h3>Interpreting the Results &mdash; What Do the Tags Mean?</h3>
+<table class="wiki-table" style="margin: 15px 0;">
+    <tr><th>Tag</th><th>Color</th><th>What Happened</th><th>What To Do</th></tr>
+    <tr><td><strong>EFFECT</strong></td>
+        <td style="color: #2ecc71;">Green</td>
+        <td>Policy deployed successfully AND metrics changed measurably</td>
+        <td>This policy works. ERAD can use it in experiments with confidence.</td></tr>
+    <tr><td><strong>NO EFFECT</strong></td>
+        <td style="color: #888;">Grey</td>
+        <td>Policy deployed successfully but metrics didn't change</td>
+        <td>Could mean: server is idle (no load to affect), or the metric window is too short, or the policy genuinely doesn't change this metric. Re-test under load.</td></tr>
+    <tr><td><strong>DEPLOY FAILED</strong></td>
+        <td style="color: #ff5555;">Red</td>
+        <td>The policy could not be applied to the server</td>
+        <td>The MCP probe tool is broken, missing, or the server doesn't support this action. Fix the probe before using this policy in experiments.</td></tr>
+    <tr><td><strong>PENDING</strong></td>
+        <td style="color: #f1c40f;">Yellow</td>
+        <td>Test hasn't run yet</td>
+        <td>Wait for the cycle to reach this test.</td></tr>
+</table></div>''', unsafe_allow_html=True)
+
+    # Safety guarantees
+    st.markdown('''<div class="wiki-section"><h3>Safety Guarantees</h3>
+<p style="color: var(--color-text); line-height: 1.8;">
+    The Policy Tester has the same safety rules as ERAD experiments:
+</p>
+<div class="code-block" style="font-size: 0.9em; line-height: 1.8; margin-top: 10px;">
+  ONE policy at a time &mdash; never stack changes
+  Every policy is REVERTED after testing &mdash; server goes back to normal
+  No experiments run during testing &mdash; checks for running workflows first
+  Pause / Resume / Cancel signals &mdash; you can stop it anytime
+  All results saved to Supabase &mdash; permanent audit trail
+  Intelligence brief for every test &mdash; AI explains what happened
+</div>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 12px;">
+    The golden rule: <strong>only one thing changes at a time, and everything gets put back</strong>.
+    Your servers are never left in an unknown state.
+</p></div>''', unsafe_allow_html=True)
+
+    # The flow diagram
+    st.markdown('''<div class="wiki-section"><h3>Policy Tester Flow</h3>
+<div class="code-block" style="font-size: 0.85em; line-height: 1.6;">
+  ERAD Policy Library (74 unique actions)
+                  |
+    For each policy x each server:
+                  |
+           NULL DEPLOY         test the connection
+                  |
+           BASELINE (60s)      measure before
+                  |
+           DEPLOY POLICY       apply the change
+                  |
+           TREATMENT (60s)     measure after
+                  |
+           REVERT              put everything back
+                  |
+           CLASSIFY + BRIEF    verdict and explanation
+</div></div>''', unsafe_allow_html=True)
+
+    # Real example from cycle 3
+    st.markdown('''<div class="wiki-section"><h3>Real Example from Our First Test Cycle</h3>
+<div class="code-block" style="font-size: 0.9em; line-height: 1.8;">
+  CYCLE 3 RESULTS:
+
+  Total tests:     148 (74 policies x 2 servers)
+  Deployed OK:     112 (76%)
+  Deploy Failed:    36 (24%) &mdash; ALL from power_state methods
+  Effects Found:     0 (servers were idle, so no load to affect)
+
+  BREAKDOWN BY METHOD:
+  io_scheduler ..... 100% deploy success
+  memory_manager ... 100% deploy success
+  forecaster ....... 100% deploy success
+  power_state ......   0% deploy success  &lt;&lt; PROBLEM FOUND!
+
+  VERDICT:
+  Three power_state tools (set_pcie_aspm, set_sched_latency,
+  set_sched_migration_cost) are broken on both servers.
+  Fix these before running power_state experiments.
+</div>
+<p style="color: var(--color-text); line-height: 1.8; margin-top: 12px;">
+    This is exactly the kind of insight the Policy Tester is designed to provide.
+    Without it, the power_state experiments would have run hundreds of iterations
+    with broken tools &mdash; wasting time and producing meaningless data.
+</p></div>''', unsafe_allow_html=True)
+
+
 def _wiki_glossary():
     st.markdown('''<div class="wiki-section"><h3>Glossary &mdash; Plain English Definitions</h3>
 <table class="wiki-table">
@@ -926,6 +1113,12 @@ def _wiki_glossary():
 
     <tr><td><span class="glossary-term">NUMA</span></td>
         <td><strong>Non-Uniform Memory Access.</strong> Some RAM is closer to a CPU than other RAM. Accessing close memory is faster. The Memory Manager optimizes which data goes where.</td></tr>
+
+    <tr><td><span class="glossary-term">Policy Tester</span></td>
+        <td>A verification tool that deploys every single policy one at a time, measures before/after metrics, then reverts. Catches broken deploys and silent failures <em>before</em> experiments run. Like a pre-flight checklist for an airplane.</td></tr>
+
+    <tr><td><span class="glossary-term">Intelligence Brief</span></td>
+        <td>An AI-generated summary explaining what happened during a policy test or experiment. Written in plain English so anyone can understand the result.</td></tr>
 
     <tr><td><span class="glossary-term">RAPL</span></td>
         <td><strong>Running Average Power Limit.</strong> Intel's built-in power cap for CPUs. Like a speed limiter &mdash; you set a wattage ceiling and the CPU won't exceed it.</td></tr>
