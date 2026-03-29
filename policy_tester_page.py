@@ -75,7 +75,7 @@ VERDICT_ORDER = {
 # Data Loading
 # ═══════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=15)
 def _load_policy_test_data() -> Dict[str, Any]:
     """Load cycles and results from Supabase policy test tables."""
     try:
@@ -90,11 +90,16 @@ def _load_policy_test_data() -> Dict[str, Any]:
             results_resp = c.get(
                 f"{SUPABASE_URL}/rest/v1/policy_test_results",
                 headers=HEADERS,
-                params={"select": "*", "order": "created_at.desc", "limit": "500"},
+                params={"select": "*", "order": "created_at.desc", "limit": "2000"},
             )
             results = results_resp.json() if results_resp.status_code == 200 else []
     except Exception:
         cycles, results = [], []
+
+    # Assign cycle_number (reverse order: oldest = #1)
+    sorted_cycles = sorted(cycles, key=lambda c: c.get("started_at", ""))
+    for idx, cyc in enumerate(sorted_cycles, start=1):
+        cyc["cycle_number"] = idx
 
     return {"cycles": cycles, "results": results}
 
@@ -504,7 +509,8 @@ def _render_global_progress(cycles: List[Dict], results: List[Dict]) -> None:
     ]
 
     total_tests = cycle.get("total_tests") or len(cycle_results) or 1
-    tests_done = cycle.get("tests_completed") or len(completed_results)
+    # Always count actual results — the cycle row's tests_completed is not updated in real time
+    tests_done = len(completed_results) or cycle.get("tests_completed", 0)
     pct = min(tests_done / max(total_tests, 1) * 100, 100)
 
     # v2 workload group info
@@ -1564,8 +1570,8 @@ def _render_phase_chart(keys: List[str], baseline: Dict[str, float],
 # ═══════════════════════════════════════════════════════════════
 
 def _render_cycle_history(cycles: List[Dict], results: List[Dict]) -> None:
-    """Small table of all cycles at the bottom."""
-    if len(cycles) <= 1:
+    """Small table of all cycles at the bottom — always shown when data exists."""
+    if not cycles:
         return
 
     st.markdown(
@@ -1655,67 +1661,66 @@ def render_policy_tester_tab(data: Dict) -> None:
     if not cycle_results:
         st.markdown(
             '<div style="color: var(--color-muted); padding: 30px; text-align: center;">'
-            "No test results for this cycle yet.</div>",
+            "No test results for this cycle yet. Results will appear as tests complete.</div>",
             unsafe_allow_html=True,
         )
-        return
+    else:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Feature 4: Expanded summary metrics (3 rows + timeline)
+        _render_summary_metrics(cycle, cycle_results)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Feature 5: Post-cycle diagnostic summary + action items
+        _render_diagnostic_summary(cycle, cycle_results)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Feature 6: Policy health diagnostic table
+        _render_policy_health_table(cycle_results)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Feature 3: Effect heatmap (proper format)
+        servers = sorted({
+            (r.get("server_hostname", "") or "").split(".")[0]
+            for r in cycle_results
+            if r.get("server_hostname")
+        })
+        _render_effect_heatmap(cycle_results, servers)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Feature 2/7: Test results with method filter + Before/During/After
+        st.markdown(
+            '<div class="section-heading">TEST RESULTS</div>',
+            unsafe_allow_html=True,
+        )
+
+        methods_in_data = sorted({r.get("method", "unknown") for r in cycle_results})
+        filter_options = ["All"] + methods_in_data
+        method_filter = st.radio(
+            "Filter by method",
+            filter_options,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+        filtered = cycle_results
+        if method_filter != "All":
+            filtered = [r for r in filtered if r.get("method") == method_filter]
+
+        st.markdown(
+            f'<div style="color: var(--color-muted); font-size: 0.85em; margin-bottom: 10px;">'
+            f"Showing {len(filtered)} of {len(cycle_results)} tests</div>",
+            unsafe_allow_html=True,
+        )
+
+        for test in filtered:
+            _render_test_detail(test)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Feature 4: Expanded summary metrics (3 rows + timeline)
-    _render_summary_metrics(cycle, cycle_results)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Feature 5: Post-cycle diagnostic summary + action items
-    _render_diagnostic_summary(cycle, cycle_results)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Feature 6: Policy health diagnostic table
-    _render_policy_health_table(cycle_results)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Feature 3: Effect heatmap (proper format)
-    servers = sorted({
-        (r.get("server_hostname", "") or "").split(".")[0]
-        for r in cycle_results
-        if r.get("server_hostname")
-    })
-    _render_effect_heatmap(cycle_results, servers)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Feature 2/7: Test results with method filter + Before/During/After
-    st.markdown(
-        '<div class="section-heading">TEST RESULTS</div>',
-        unsafe_allow_html=True,
-    )
-
-    methods_in_data = sorted({r.get("method", "unknown") for r in cycle_results})
-    filter_options = ["All"] + methods_in_data
-    method_filter = st.radio(
-        "Filter by method",
-        filter_options,
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-
-    filtered = cycle_results
-    if method_filter != "All":
-        filtered = [r for r in filtered if r.get("method") == method_filter]
-
-    st.markdown(
-        f'<div style="color: var(--color-muted); font-size: 0.85em; margin-bottom: 10px;">'
-        f"Showing {len(filtered)} of {len(cycle_results)} tests</div>",
-        unsafe_allow_html=True,
-    )
-
-    for test in filtered:
-        _render_test_detail(test)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Cycle history
+    # Cycle history — ALWAYS shown at the bottom
     _render_cycle_history(cycles, results)
